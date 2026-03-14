@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/lib/auth.tsx";
+import SignupUser from "@/pages/SignupUser";
 import {
   ArrowRight,
   BadgeCheck,
@@ -67,44 +70,64 @@ type LandingSectionsProps = {
 
 export function CategoryHighlights({ categories }: LandingSectionsProps) {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [showSignupModal, setShowSignupModal] = useState(false);
+  const [selectedService, setSelectedService] = useState("");
   const featured = categories.slice(0, 8);
 
+  const handleCategoryClick = (categoryName: string) => {
+    if (!isAuthenticated) {
+      setSelectedService(categoryName);
+      setShowSignupModal(true);
+    } else {
+      navigate(`/searchresults?service=${encodeURIComponent(categoryName)}`);
+    }
+  };
+
   return (
-    <section className="relative z-20 -mt-16 px-4">
-      <div className="mx-auto max-w-6xl rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,0.12)] sm:p-8">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
-          {featured.map((category, index) => {
-            const Icon = getCategoryIcon(category.name);
-            const accentColors = [
-              "bg-blue-50 text-blue-600",
-              "bg-emerald-50 text-emerald-600",
-              "bg-violet-50 text-violet-600",
-              "bg-amber-50 text-amber-600",
-              "bg-pink-50 text-pink-600",
-              "bg-cyan-50 text-cyan-600",
-              "bg-indigo-50 text-indigo-600",
-              "bg-rose-50 text-rose-600",
-            ];
-            return (
-              <button
-                key={category.id}
-                type="button"
-                className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-100 px-3 py-4 text-center transition-all hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg"
-                onClick={() => navigate(`/searchresults?service=${encodeURIComponent(category.name)}`)}
-              >
-                <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${accentColors[index % accentColors.length]}`}>
-                  <Icon className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold leading-snug text-slate-900 sm:text-sm">{category.name}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">{category.subcategories.length} services</p>
-                </div>
-              </button>
-            );
-          })}
+    <>
+      <section className="relative z-20 -mt-16 px-4">
+        <div className="mx-auto max-w-6xl rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,0.12)] sm:p-8">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
+            {featured.map((category, index) => {
+              const Icon = getCategoryIcon(category.name);
+              const accentColors = [
+                "bg-blue-50 text-blue-600",
+                "bg-emerald-50 text-emerald-600",
+                "bg-violet-50 text-violet-600",
+                "bg-amber-50 text-amber-600",
+                "bg-pink-50 text-pink-600",
+                "bg-cyan-50 text-cyan-600",
+                "bg-indigo-50 text-indigo-600",
+                "bg-rose-50 text-rose-600",
+              ];
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-100 px-3 py-4 text-center transition-all hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg"
+                  onClick={() => handleCategoryClick(category.name)}
+                >
+                  <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${accentColors[index % accentColors.length]}`}>
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold leading-snug text-slate-900 sm:text-sm">{category.name}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{category.subcategories.length} services</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <SignupUser
+        open={showSignupModal}
+        onOpenChange={setShowSignupModal}
+        initialService={selectedService}
+      />
+    </>
   );
 }
 
@@ -154,6 +177,19 @@ export function SocialProofSection() {
 
 export function FeaturedProvidersSection({ categories }: LandingSectionsProps) {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [showSignupModal, setShowSignupModal] = useState(false);
+  const [selectedService, setSelectedService] = useState("");
+
+  const handleServiceClick = (serviceName: string) => {
+    if (!isAuthenticated) {
+      setSelectedService(serviceName);
+      setShowSignupModal(true);
+    } else {
+      navigate(`/searchresults?service=${encodeURIComponent(serviceName)}`);
+    }
+  };
+
   const cards = [
     {
       name: "CQC Compliance Specialists",
@@ -190,43 +226,51 @@ export function FeaturedProvidersSection({ categories }: LandingSectionsProps) {
   ];
 
   return (
-    <section className="bg-slate-50/80 px-4 py-24">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-12 flex flex-col gap-4 text-center sm:flex-row sm:items-end sm:justify-between sm:text-left">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-blue-600">Featured matches</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Trusted specialists for care businesses</h2>
-            <p className="mt-3 max-w-2xl text-slate-500">Mock showcase cards for now, styled to support the redesign while still routing users into the live search experience.</p>
+    <>
+      <section className="bg-slate-50/80 px-4 py-24">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 flex flex-col gap-4 text-center sm:flex-row sm:items-end sm:justify-between sm:text-left">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-blue-600">Featured matches</p>
+              <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Trusted specialists for care businesses</h2>
+              <p className="mt-3 max-w-2xl text-slate-500">Mock showcase cards for now, styled to support the redesign while still routing users into the live search experience.</p>
+            </div>
+            <Button variant="outline" className="rounded-full px-6" onClick={() => handleServiceClick("")}>Browse all services</Button>
           </div>
-          <Button variant="outline" className="rounded-full px-6" onClick={() => navigate("/searchresults")}>Browse all services</Button>
-        </div>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-          {cards.map((card) => (
-            <Card key={card.name} className="overflow-hidden rounded-[1.75rem] border-0 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-              <div className="relative h-52 overflow-hidden">
-                <img src={card.image} alt={card.role} className="h-full w-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
-                <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900">
-                  {card.role}
-                </div>
-              </div>
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">{card.name}</h3>
-                    <p className="mt-1 text-sm text-slate-500">{card.location}</p>
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {cards.map((card) => (
+              <Card key={card.name} className="overflow-hidden rounded-[1.75rem] border-0 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+                <div className="relative h-52 overflow-hidden">
+                  <img src={card.image} alt={card.role} className="h-full w-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+                  <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-900">
+                    {card.role}
                   </div>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{card.metric}</span>
                 </div>
-                <Button className="mt-6 w-full rounded-xl" onClick={() => navigate(`/searchresults?service=${encodeURIComponent(card.service)}`)}>
-                  View matches
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">{card.name}</h3>
+                      <p className="mt-1 text-sm text-slate-500">{card.location}</p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{card.metric}</span>
+                  </div>
+                  <Button className="mt-6 w-full rounded-xl" onClick={() => handleServiceClick(card.service)}>
+                    View matches
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <SignupUser
+        open={showSignupModal}
+        onOpenChange={setShowSignupModal}
+        initialService={selectedService}
+      />
+    </>
   );
 }
 
@@ -349,61 +393,80 @@ export function ProviderCtaSection() {
 }
 
 export function ExploreCategoriesSection({ categories }: LandingSectionsProps) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [showSignupModal, setShowSignupModal] = useState(false);
+  const [selectedService, setSelectedService] = useState("");
   const topCategories = categories.slice(0, 6);
 
+  const handleCategoryClick = (categoryName: string) => {
+    if (!isAuthenticated) {
+      setSelectedService(categoryName);
+      setShowSignupModal(true);
+    } else {
+      navigate(`/searchresults?service=${encodeURIComponent(categoryName)}`);
+    }
+  };
+
   return (
-    <section className="px-4 py-24">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-12 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-blue-600">Categories</p>
-            <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Explore services built for the care sector</h2>
-            <p className="mt-3 max-w-2xl text-slate-500">Using current image assets with live category data from your existing source.</p>
+    <>
+      <section className="px-4 py-24">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-blue-600">Categories</p>
+              <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Explore services built for the care sector</h2>
+              <p className="mt-3 max-w-2xl text-slate-500">Using current image assets with live category data from your existing source.</p>
+            </div>
+            <Button variant="outline" className="rounded-full px-6" onClick={() => handleCategoryClick("")}>
+              See all services
+            </Button>
           </div>
-          <Button asChild variant="outline" className="rounded-full px-6">
-            <Link to="/searchresults">See all services</Link>
-          </Button>
-        </div>
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {topCategories.map((category, index) => {
-            const Icon = getCategoryIcon(category.name);
-            const image = imagePalette[index % imagePalette.length];
-            return (
-              <Card key={category.id} className="overflow-hidden rounded-[1.75rem] border-0 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-                <div className="relative h-56">
-                  <img src={image} alt={category.name} className="h-full w-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 to-transparent" />
-                  <div className="absolute bottom-5 left-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur-sm">
-                    <Icon className="h-6 w-6" />
-                  </div>
-                </div>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-900">{category.name}</h3>
-                      <p className="mt-2 text-sm text-slate-500">{category.description || "Specialist support for healthcare operators and growing care businesses."}</p>
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {topCategories.map((category, index) => {
+              const Icon = getCategoryIcon(category.name);
+              const image = imagePalette[index % imagePalette.length];
+              return (
+                <Card key={category.id} className="overflow-hidden rounded-[1.75rem] border-0 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+                  <div className="relative h-56">
+                    <img src={image} alt={category.name} className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 to-transparent" />
+                    <div className="absolute bottom-5 left-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur-sm">
+                      <Icon className="h-6 w-6" />
                     </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{category.subcategories.length}</span>
                   </div>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {category.subcategories.slice(0, 3).map((subcategory) => (
-                      <span key={subcategory.id} className="rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                        {subcategory.name}
-                      </span>
-                    ))}
-                  </div>
-                  <Button asChild variant="outline" className="mt-6 w-full rounded-xl">
-                    <Link to={`/searchresults?service=${encodeURIComponent(category.name)}`}>
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-900">{category.name}</h3>
+                        <p className="mt-2 text-sm text-slate-500">{category.description || "Specialist support for healthcare operators and growing care businesses."}</p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{category.subcategories.length}</span>
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {category.subcategories.slice(0, 3).map((subcategory) => (
+                        <span key={subcategory.id} className="rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                          {subcategory.name}
+                        </span>
+                      ))}
+                    </div>
+                    <Button variant="outline" className="mt-6 w-full rounded-xl" onClick={() => handleCategoryClick(category.name)}>
                       Explore category
                       <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <SignupUser
+        open={showSignupModal}
+        onOpenChange={setShowSignupModal}
+        initialService={selectedService}
+      />
+    </>
   );
 }

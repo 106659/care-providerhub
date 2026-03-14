@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent horizontal overflow */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+
+.container {
+  max-width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* Ensure mobile responsiveness */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Fix any flex overflow issues */
+.flex {
+  min-width: 0;
+}
+
+/* Text truncation for long content */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Grid responsive fixes */
+.grid {
+  width: 100%;
+  max-width: 100%;
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    /* Firefox */
+    scrollbar-width: none;
+    /* Safari and Chrome */
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 210 60% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 60% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 60% 17%;
+
+    /* Healthcare Blue - Primary Brand Color */
+    --primary: 211 100% 40%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 211 100% 90%;
+    
+    /* Navy - Secondary Brand Color */
+    --secondary: 210 60% 17%;
+    --secondary-foreground: 0 0% 100%;
+
+    /* Warm Green - Accent/Trust Color */
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 211 100% 40%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(211 100% 40%) 0%, hsl(195 85% 41%) 100%);
+    --gradient-cta: linear-gradient(135deg, hsl(211 100% 40%) 0%, hsl(160 84% 39%) 100%);
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(210 60% 17% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(210 60% 17% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(210 60% 17% / 0.1);
+    --shadow-xl: 0 20px 25px -5px hsl(210 60% 17% / 0.1);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 210 60% 17%;
+    --foreground: 0 0% 100%;
+
+    --card: 210 60% 17%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 210 60% 17%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 210 50% 25%;
+    --secondary-foreground: 0 0% 100%;
+
+    --accent: 160 84% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --muted: 210 50% 25%;
+    --muted-foreground: 215 20% 65%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 50% 25%;
+    --input: 210 50% 25%;
+    --ring: 211 100% 50%;
+    
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

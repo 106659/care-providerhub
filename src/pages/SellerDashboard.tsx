@@ -1,0 +1,1596 @@
+import { useState, useEffect } from 'react';
+import { useAvailableProjects, useFeaturedProjects, useSearchBasedProjects } from '../hooks/useProjects';
+import { supabase } from '../lib/supabase';
+import { SellerDashboardLayout } from '../components/SellerDashboardLayout';
+import { Footer } from '../components/Footer';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Progress } from '../components/ui/progress';
+import { Avatar } from '../components/ui/avatar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Input } from '../components/ui/input';
+import {
+  Star,
+  TrendingUp,
+  Package,
+  DollarSign,
+  MessageSquare,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Plus,
+  Eye,
+  Calendar,
+  Users,
+  Award,
+  Bell,
+  Heart,
+  Share2,
+  ThumbsUp,
+  MapPin,
+  Phone,
+  Mail,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  Activity,
+  Target,
+  Zap,
+  Coins,
+  Search,
+  Image as ImageIcon,
+  Shield
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { BidDialog } from '../components/BidDialog';
+import { useAuth } from '../lib/auth.tsx';
+import { Link, useNavigate } from 'react-router-dom';
+
+export default function SellerDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { projects: availableProjects, loading: projectsLoading, refetch: refetchProjects } = useAvailableProjects(user?.id);
+  const { projects: featuredProjects, loading: featuredLoading } = useFeaturedProjects(user?.id);
+  const { projects: searchBasedProjects, loading: searchLoading } = useSearchBasedProjects(user?.id);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [recentMessages, setRecentMessages] = useState<any[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [recentReviews, setRecentReviews] = useState<any[]>([]);
+  const [avgRating, setAvgRating] = useState<number>(0);
+  const [totalReviews, setTotalReviews] = useState<number>(0);
+  // Seller Plus status
+  const [sellerPlusActive, setSellerPlusActive] = useState<boolean>(false);
+  const [sellerPlusEndsAt, setSellerPlusEndsAt] = useState<string | null>(null);
+  const [sellerPlusLoading, setSellerPlusLoading] = useState<boolean>(true);
+  const [profileCompletion, setProfileCompletion] = useState({ 
+    percentage: 0, 
+    level: 'Beginner', 
+    badge: 'Getting Started',
+    fields: {
+      avatar: false,
+      description: false,
+      skills: false,
+      portfolio: false,
+      phone: false,
+      kyc: false
+    }
+  });
+  
+  // KYC Details state for detailed status display
+  const [kycDetails, setKycDetails] = useState<{
+    status: 'none' | 'pending' | 'approved' | 'rejected';
+    rejectionReason?: string;
+  }>({ status: 'none' });
+
+  console.log('SellerDashboard render:', { user: user?.id, userRole: user?.role });
+
+  // Load Seller Plus subscription status
+  useEffect(() => {
+    const loadSellerPlus = async () => {
+      if (!user?.id) { setSellerPlusActive(false); setSellerPlusEndsAt(null); setSellerPlusLoading(false); return; }
+      try {
+        setSellerPlusLoading(true);
+        const { data, error } = await (supabase as any)
+          .from('seller_subscriptions')
+          .select('status, ends_at')
+          .eq('seller_id', user.id)
+          .eq('status', 'active')
+          .order('ends_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error && error.code !== 'PGRST116') throw error;
+        const active = !!data && (!data.ends_at || new Date(data.ends_at) > new Date());
+        setSellerPlusActive(active);
+        setSellerPlusEndsAt(data?.ends_at || null);
+      } catch (e) {
+        setSellerPlusActive(false);
+        setSellerPlusEndsAt(null);
+      } finally {
+        setSellerPlusLoading(false);
+      }
+    };
+    loadSellerPlus();
+  }, [user?.id]);
+
+  const activateSellerPlus = async () => {
+    if (!user?.id) { toast.error('You must be logged in'); return; }
+    try {
+      setSellerPlusLoading(true);
+      const response = await fetch('/.netlify/functions/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'seller_plus',
+          planSlug: 'seller-plus',
+          userId: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || 'Failed to start Seller Plus payment');
+      }
+
+      const data = await response.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Missing Stripe checkout URL');
+      }
+    } catch (e: any) {
+      console.error('activateSellerPlus error', e);
+      toast.error(e?.message || 'Failed to start Seller Plus payment');
+    } finally {
+      setSellerPlusLoading(false);
+    }
+  };
+
+  // Token plans for quick purchase
+  const TOKEN_PRICE_GBP = 5;
+  const [tokenPlans, setTokenPlans] = useState<Array<{
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    tokens: number;
+    is_popular: boolean;
+  }>>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('token_plans')
+          .select('id, slug, name, description, tokens, is_popular')
+          .eq('is_active', true)
+          .order('tokens', { ascending: true });
+        if (error) throw error;
+        setTokenPlans(data || []);
+      } catch (e) {
+        console.error('Error loading token plans', e);
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+    fetchPlans();
+  }, []);
+
+  const handleQuickPurchase = async (planSlug: string) => {
+    if (!user?.id) {
+      toast.error('You must be logged in');
+      return;
+    }
+    const plan = tokenPlans.find(p => p.slug === planSlug);
+    if (!plan) return;
+    setPurchasingPlan(planSlug);
+    try {
+      // brief delay to mimic gateway
+      await new Promise(res => setTimeout(res, 900));
+
+      // read current balance
+      const { data: userRow, error: userErr } = await supabase
+        .from('users')
+        .select('bid_tokens')
+        .eq('id', user.id)
+        .single();
+      if (userErr) throw userErr;
+      const current = userRow?.bid_tokens ?? 0;
+
+      // update balance
+      const { error: updErr } = await supabase
+        .from('users')
+        .update({ bid_tokens: current + plan.tokens })
+        .eq('id', user.id);
+      if (updErr) throw updErr;
+
+      // record purchase
+      const amount = plan.tokens * TOKEN_PRICE_GBP;
+      const { error: insErr } = await supabase
+        .from('token_purchases')
+        .insert({
+          seller_id: user.id,
+          plan_id: plan.id,
+          tokens: plan.tokens,
+          amount,
+          currency: 'GBP',
+          status: 'completed'
+        });
+      if (insErr) throw insErr;
+
+      toast.success(`Purchased ${plan.tokens} tokens`);
+    } catch (e: any) {
+      console.error('Quick purchase error', e);
+      toast.error(e?.message || 'Failed to purchase tokens');
+    } finally {
+      setPurchasingPlan(null);
+    }
+  };
+
+  // Fetch real stats for the seller
+  const [realStats, setRealStats] = useState({
+    earnings: { monthly: 0, weekly: 0, total: 0, pending: 0, available: 0, spent: 0 },
+    orders: { active: 0, completed: 0, cancelled: 0, inQueue: 0 },
+    reviews: { average: 0, total: 0, fiveStar: 0, responseTime: 0 }
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!user?.id) return;
+
+      console.log('🤑 SELLER DASHBOARD: Starting earnings fetch for user:', user.id);
+
+      try {
+        // Get earnings from completed orders
+        console.log('💰 SELLER DASHBOARD: Fetching completed orders earnings...');
+        const { data: earnings } = await supabase
+          .from('orders')
+          .select('price, created_at')
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        console.log('💰 SELLER DASHBOARD: Earnings data fetched:', earnings);
+        console.log('💰 SELLER DASHBOARD: Number of completed orders:', earnings?.length);
+
+        const totalEarnings = (earnings || []).reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+
+        const { data: milestoneEarnings } = await supabase
+          .from('milestone_orders')
+          .select('total_amount, status')
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        const completedMilestoneEarnings = (milestoneEarnings || []).reduce((sum: number, order: any) => sum + parseFloat(order.total_amount?.toString() || '0'), 0) || 0;
+        console.log('💰 SELLER DASHBOARD: CALCULATED totalEarnings:', totalEarnings);
+        console.log('💰 SELLER DASHBOARD: Individual order prices:', (earnings || []).map((o: any) => o.price));
+
+        // Get monthly earnings (last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const monthlyEarnings = (earnings || []).filter((order: any) =>
+          new Date(order.created_at) > thirtyDaysAgo
+        ).reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+
+        console.log('💰 SELLER DASHBOARD: CALCULATED monthlyEarnings:', monthlyEarnings);
+
+        // Get total spend on tokens/subscriptions
+        const { data: tokenPurchases } = await supabase
+          .from('token_purchases')
+          .select('amount, status')
+          .eq('seller_id', user.id);
+
+        const totalSpent = (tokenPurchases || [])
+          .filter((purchase: any) => !purchase.status || purchase.status === 'completed')
+          .reduce((sum: number, purchase: any) => sum + parseFloat(purchase.amount?.toString() || '0'), 0) || 0;
+
+        // Get order stats
+        const { count: activeOrders } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .in('status', ['pending', 'in_progress']);
+
+        const { count: completedOrders } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        const { count: activeMilestoneOrders } = await supabase
+          .from('milestone_orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .in('status', ['pending', 'in_progress']);
+
+        const { count: completedMilestoneOrders } = await supabase
+          .from('milestone_orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        // Reviews data comes from the existing useEffect that loads reviews
+
+        const newStats = {
+          earnings: {
+            monthly: monthlyEarnings,
+            weekly: Math.floor(monthlyEarnings * 0.25), // Estimate weekly
+            total: totalEarnings,
+            pending: Math.floor(totalEarnings * 0.1), // Estimate pending
+            available: Math.floor(totalEarnings * 0.9), // Estimate available
+            spent: totalSpent
+          },
+          orders: {
+            active: (activeOrders || 0) + (activeMilestoneOrders || 0),
+            completed: (completedOrders || 0) + (completedMilestoneOrders || 0),
+            cancelled: 0, // Could be implemented
+            inQueue: (activeOrders || 0) + (activeMilestoneOrders || 0)
+          },
+          reviews: {
+            average: avgRating,
+            total: totalReviews,
+            fiveStar: 0, // Could calculate from reviews
+            responseTime: 2 // Default response time
+          }
+        };
+
+        console.log('📈 SELLER DASHBOARD: SETTING NEW STATS:', newStats);
+        setRealStats(newStats);
+
+        if (user.role === 'provider') {
+          let computedLevel: 'level0' | 'level1' | 'level2' = 'level0';
+          if (totalEarnings >= 5000) {
+            computedLevel = 'level2';
+          } else if (totalEarnings >= 2000) {
+            computedLevel = 'level1';
+          }
+          if (avgRating < 4) {
+            computedLevel = 'level0';
+          }
+
+          if (computedLevel !== user.seller_level) {
+            try {
+              await supabase
+                .from('users')
+                .update({ seller_level: computedLevel })
+                .eq('id', user.id);
+            } catch (levelErr) {
+              console.error('Error updating seller level:', levelErr);
+            }
+          }
+        }
+
+        console.log('✅ SELLER DASHBOARD: STATS UPDATED SUCCESSFULLY');
+      } catch (error) {
+        console.error('Error fetching seller stats:', error);
+      }
+    };
+
+    fetchStats();
+  }, [user?.id, avgRating, totalReviews]);
+
+  // Log when stats change
+  useEffect(() => {
+    console.log('🔄 SELLER DASHBOARD STATS STATE CHANGED:', realStats);
+    console.log('🔄 Current earnings in state:', realStats.earnings);
+  }, [realStats]);
+
+  // Calculate profile completion (including KYC)
+  useEffect(() => {
+    if (!user?.id) {
+      setProfileCompletion({
+        percentage: 0,
+        level: 'Beginner',
+        badge: 'Getting Started',
+        fields: {
+          avatar: false,
+          description: false,
+          portfolio: false,
+          phone: false,
+          kyc: false
+        }
+      });
+      return;
+    }
+
+    const calculateCompletion = async () => {
+      try {
+        // Fetch user's services/portfolio count
+        const { count: portfolioCount } = await supabase
+          .from('services')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id);
+
+        // Fetch latest KYC status
+        let kycApproved = false;
+        let kycPending = false;
+        let kycRejected = false;
+        let kycRejectionReason = '';
+        try {
+          const { data: kycDoc } = await (supabase
+            .from('kyc_documents')
+            .select('status, rejection_reason')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle() as any);
+
+          if (kycDoc) {
+            if (kycDoc.status === 'approved') {
+              kycApproved = true;
+            } else if (kycDoc.status === 'pending') {
+              kycPending = true;
+            } else if (kycDoc.status === 'rejected') {
+              kycRejected = true;
+              kycRejectionReason = kycDoc.rejection_reason || '';
+            }
+          }
+        } catch (e) {
+          console.warn('SellerDashboard: failed to load KYC status for profile completion', e);
+        }
+        
+        // Update KYC details state for display
+        if (kycApproved) {
+          setKycDetails({ status: 'approved' });
+        } else if (kycPending) {
+          setKycDetails({ status: 'pending' });
+        } else if (kycRejected) {
+          setKycDetails({ status: 'rejected', rejectionReason: kycRejectionReason });
+        } else {
+          setKycDetails({ status: 'none' });
+        }
+
+        let completedFields = 0;
+        const fieldStatus = {
+          avatar: false,
+          description: false,
+          skills: false,
+          portfolio: false,
+          phone: false,
+          kyc: false
+        };
+
+        // Profile photo (avatar)
+        if (user.avatar && user.avatar !== 'https://api.dicebear.com/7.x/avataaars/svg?seed=default') {
+          completedFields++;
+          fieldStatus.avatar = true;
+        }
+
+        // Description/bio
+        if (user.bio || user.description) {
+          completedFields++;
+          fieldStatus.description = true;
+        }
+
+        // Skills (specializations) - visual only, does NOT affect percentage
+        if ((user.specializations as any)?.length) {
+          fieldStatus.skills = true;
+        }
+
+        // Portfolio (services)
+        if ((portfolioCount || 0) > 0) {
+          completedFields++;
+          fieldStatus.portfolio = true;
+        }
+
+        // Phone verification (assuming phone field exists)
+        if (user.phone || user.phone_verified) {
+          completedFields++;
+          fieldStatus.phone = true;
+        }
+
+        let percentage = 0;
+        let level = 'Beginner';
+        let badge = 'Getting Started';
+
+        if (kycApproved) {
+          percentage = 100;
+          level = 'Expert';
+          badge = 'Verified Seller';
+          fieldStatus.kyc = true;
+        } else {
+          const totalFields = 4;
+          percentage = Math.round((completedFields / totalFields) * 100);
+
+          if (percentage >= 75) {
+            level = 'Expert';
+            badge = 'Professional';
+          } else if (percentage >= 50) {
+            level = 'Intermediate';
+            badge = 'Growing';
+          } else if (percentage >= 25) {
+            level = 'Novice';
+            badge = 'Building';
+          }
+        }
+
+        setProfileCompletion({ percentage, level, badge, fields: fieldStatus });
+      } catch (error) {
+        console.error('Error calculating profile completion:', error);
+      }
+    };
+
+    calculateCompletion();
+  }, [user?.id, user?.avatar]);
+
+  // Handle search functionality
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      console.log('Searching projects with query:', query, 'user ID:', user?.id);
+      const { data: projectsData, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('status', 'open')
+        .neq('user_id', user?.id)
+        .or(`title.ilike.%${query}%,description.ilike.%${query}%,category.ilike.%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(9);
+
+      if (error) throw error;
+      console.log('Project search results:', projectsData);
+      setSearchResults(projectsData || []);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Effect to handle search when query changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRecentMessages([]);
+      setMessagesLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchRecentMessages = async () => {
+      try {
+        setMessagesLoading(true);
+
+        const { data, error } = await supabase
+          .from('messages')
+          .select(`
+            id,
+            sender_id,
+            receiver_id,
+            content,
+            created_at,
+            sender:users!messages_sender_id_fkey (id, name, username, avatar),
+            receiver:users!messages_receiver_id_fkey (id, name, username, avatar)
+          `)
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (error) throw error;
+
+        const conversationMap = new Map<string, any>();
+
+        data?.forEach((message: any) => {
+          const isSender = message.sender_id === user.id;
+          const partner = isSender ? message.receiver : message.sender;
+          if (!partner?.id) return;
+
+          const partnerId = partner.id;
+          const existing = conversationMap.get(partnerId);
+          if (!existing || new Date(message.created_at) > new Date(existing.created_at)) {
+            conversationMap.set(partnerId, {
+              partnerId,
+              partnerName: partner.name || partner.username || 'Unknown user',
+              partnerAvatar: partner.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
+              created_at: message.created_at,
+              content: message.content,
+              direction: isSender ? 'sent' : 'received'
+            });
+          }
+        });
+
+        const conversations = Array.from(conversationMap.values())
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 3);
+
+        if (isMounted) {
+          setRecentMessages(conversations);
+        }
+      } catch (err) {
+        console.error('Error fetching recent messages:', err);
+        if (isMounted) {
+          setRecentMessages([]);
+        }
+      } finally {
+        if (isMounted) {
+          setMessagesLoading(false);
+        }
+      }
+    };
+
+    fetchRecentMessages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]);
+
+  // Load reviews received by this seller
+  useEffect(() => {
+    let isMounted = true;
+    const loadReviews = async () => {
+      if (!user?.id) {
+        setRecentReviews([]);
+        setAvgRating(0);
+        setTotalReviews(0);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            order_id,
+            reviewer_id,
+            reviewee_id,
+            rating,
+            comment,
+            created_at,
+            reviewer:users!reviews_reviewer_id_fkey ( id, name, username, avatar )
+          `)
+          .eq('reviewee_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (error) throw error;
+        const list = data || [];
+        if (isMounted) {
+          setRecentReviews(list);
+          const count = list.length;
+          const sum = list.reduce((s: number, r: any) => s + (r.rating || 0), 0);
+          setTotalReviews(count);
+          setAvgRating(count ? parseFloat((sum / count).toFixed(1)) : 0);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setRecentReviews([]);
+          setAvgRating(0);
+          setTotalReviews(0);
+        }
+      }
+    };
+    loadReviews();
+    const ch = supabase
+      .channel('seller_reviews')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: `reviewee_id=eq.${user?.id}` }, loadReviews)
+      .subscribe();
+    return () => { isMounted = false; supabase.removeChannel(ch); };
+  }, [user?.id]);
+
+  // Render search results or default content
+  const renderSearchSection = () => {
+    if (searchQuery) {
+      // Show search results when searching
+      if (isSearching) {
+        return (
+          <div className="text-center py-8 text-gray-500">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            Searching for projects...
+          </div>
+        );
+      }
+
+      if (searchResults.length > 0) {
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {searchResults.map((project) => (
+              <Card key={project.id} className="hover:shadow-md transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                    <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+                    <Badge className="bg-blue-100 text-blue-800 text-xs">
+                      Search Match
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <Badge variant="outline" className="text-xs">{project.category}</Badge>
+                    <Badge
+                      variant={
+                        project.urgency === 'high' ? 'destructive' :
+                        project.urgency === 'medium' ? 'default' : 'secondary'
+                      }
+                      className="text-xs"
+                    >
+                      {project.urgency}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+                    {project.description}
+                  </p>
+                  <div className="space-y-2 mb-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-green-600">£{project.budget}</span>
+                      <span className="text-gray-500">{project.budget_type}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>{project.location}</span>
+                      <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      size="sm"
+                      onClick={() => navigate(`/project/${project.id}`)}
+                    >
+                      View Full Project Details
+                    </Button>
+                    <BidDialog
+                      projectId={project.id}
+                      projectTitle={project.title}
+                      onBidSubmitted={refetchProjects}
+                      trigger={
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
+                          Place Bid
+                        </Button>
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        );
+      }
+
+      return (
+        <div className="text-center py-8 text-gray-500">
+          No projects found matching "{searchQuery}"
+          <br />
+          <span className="text-sm">Try different search terms or check back later for new projects.</span>
+        </div>
+      );
+    }
+
+    // Show default "Based on Your Searches" when not searching
+    if (searchLoading) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          Loading search-based projects...
+        </div>
+      );
+    }
+
+    if (searchBasedProjects.length > 0) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {searchBasedProjects.map((project) => (
+            <Card key={project.id} className="hover:shadow-md transition-shadow border-blue-200">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                  <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+                  <Badge className="bg-blue-100 text-blue-800 text-xs">
+                    Search Match
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <Badge variant="outline" className="text-xs">{project.category}</Badge>
+                  <Badge
+                    variant={
+                      project.urgency === 'high' ? 'destructive' :
+                      project.urgency === 'medium' ? 'default' : 'secondary'
+                    }
+                    className="text-xs"
+                  >
+                    {project.urgency}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+                  {project.description}
+                </p>
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-semibold text-green-600">£{project.budget}</span>
+                    <span className="text-gray-500">{project.budget_type}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>{project.location}</span>
+                    <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    size="sm"
+                    onClick={() => navigate(`/project/${project.id}`)}
+                  >
+                    View Full Project Details
+                  </Button>
+                  <BidDialog
+                    projectId={project.id}
+                    projectTitle={project.title}
+                    onBidSubmitted={refetchProjects}
+                    trigger={
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
+                        Place Bid
+                      </Button>
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="text-center py-8 text-gray-500">
+        No search-based projects available yet.
+        <br />
+        <span className="text-sm">Start searching for projects to see personalized recommendations.</span>
+      </div>
+    );
+  };
+
+  const quickActions = [
+    {
+      title: 'Buy Tokens',
+      description: 'Purchase bidding tokens',
+      icon: Zap,
+      color: 'bg-yellow-500',
+      href: '/seller/tokens'
+    },
+    {
+      title: 'Create Service',
+      description: 'Post your service offering',
+      icon: Plus,
+      color: 'bg-blue-500',
+      href: '/create-service'
+    },
+    {
+      title: 'My Services',
+      description: 'View and edit your gigs',
+      icon: Eye,
+      color: 'bg-purple-500',
+      href: '/seller/services'
+    },
+    {
+      title: 'Browse Projects',
+      description: 'Find new projects to bid on',
+      icon: Search,
+      color: 'bg-green-500',
+      href: '/project-search'
+    },
+    {
+      title: 'My Bids',
+      description: 'See bids you have placed',
+      icon: Activity,
+      color: 'bg-teal-500',
+      href: '/seller/my-bids'
+    },
+    {
+      title: 'Orders Received',
+      description: 'Manage projects you\'ve won',
+      icon: Package,
+      color: 'bg-indigo-500',
+      href: '/seller/manage-orders'
+    },
+    {
+      title: 'Manage Portfolio',
+      description: 'Showcase your work',
+      icon: ImageIcon,
+      color: 'bg-orange-500',
+      href: '/seller/portfolio'
+    },
+    {
+      title: 'View Earnings',
+      description: 'Check your revenue analytics',
+      icon: DollarSign,
+      color: 'bg-orange-500',
+      href: '/seller/earnings'
+    }
+  ];
+
+  const performanceMetrics = [];
+
+  console.log('🎨 SELLER DASHBOARD RENDERING with earnings:', {
+    monthly: realStats.earnings.monthly,
+    total: realStats.earnings.total,
+    available: realStats.earnings.available
+  });
+
+  return (
+    <SellerDashboardLayout>
+      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20 md:pb-8 max-w-full overflow-hidden">
+        {/* Welcome Banner */}
+        <section className="bg-gradient-to-r from-green-600 to-blue-600 rounded-lg p-5 sm:p-6 lg:p-8 mb-8 text-white">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Welcome back{user?.name ? `, ${user.name}` : ''}!</h1>
+                <p className="mt-2 text-sm text-green-100 sm:text-base">
+                  Let’s keep growing your healthcare business today.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
+                  {profileCompletion.level} Seller
+                </Badge>
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
+                  Profile {profileCompletion.percentage}% complete
+                </Badge>
+                {sellerPlusActive ? (
+                  <Badge className="bg-yellow-400/90 text-xs sm:text-sm text-black border-white/30 px-2.5 py-1 sm:px-3">
+                    Featured (Seller Plus){sellerPlusEndsAt ? ` · until ${new Date(sellerPlusEndsAt).toLocaleDateString()}` : ''}
+                  </Badge>
+                ) : (
+                  <Button
+                    onClick={activateSellerPlus}
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
+                    disabled={sellerPlusLoading}
+                  >
+                    {sellerPlusLoading ? 'Processing…' : 'Get Seller Plus (£50/mo)'}
+                  </Button>
+                )}
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline" 
+                  size="sm" 
+                  className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
+                >
+                  Refresh Stats
+                </Button>
+              </div>
+            </div>
+            <div className="text-left sm:text-right">
+              <div className="text-3xl font-bold sm:text-4xl">£{realStats.earnings.total.toLocaleString()}</div>
+              <div className="text-sm text-green-100 sm:text-base">Total earnings</div>
+            </div>
+          </div>
+        </section>
+        {/* Search Bar */}
+        
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Monthly Earnings</p>
+                  <p className="text-2xl font-bold">£{realStats.earnings.monthly.toLocaleString()}</p>
+                  <p className="text-xs text-green-600 flex items-center mt-1">
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                    +0% from last month
+                  </p>
+                </div>
+                <DollarSign className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Active Orders</p>
+                  <p className="text-2xl font-bold">{realStats.orders.active}</p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    {realStats.orders.inQueue} in queue
+                  </p>
+                </div>
+                <Package className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Average Rating</p>
+                  <p className="text-2xl font-bold flex items-center">
+                    {realStats.reviews.average}
+                    <Star className="h-5 w-5 fill-yellow-400 text-yellow-400 ml-1" />
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {realStats.reviews.total} reviews
+                  </p>
+                </div>
+                <Star className="h-8 w-8 text-yellow-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Response Time</p>
+                  <p className="text-2xl font-bold">{realStats.reviews.responseTime}h</p>
+                  <p className="text-xs text-green-600 mt-1">
+                    Excellent response rate
+                  </p>
+                </div>
+                <Clock className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Frequently Asked Questions */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column - Project Carousels */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Featured Projects Carousel (moved above) */}
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">Featured Projects</h2>
+                  <p className="text-sm text-gray-600">High-value projects from verified clients</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Featured Projects')}`)}
+                >
+                  View All
+                </Button>
+              </div>
+              {featuredLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading featured projects...
+                </div>
+              ) : featuredProjects.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {featuredProjects.map((project) => (
+                    <Card key={project.id} className="hover:shadow-md transition-shadow border-yellow-200">
+                      <CardHeader className="pb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+                          <div className="flex flex-col items-end space-y-1 self-start sm:self-auto flex-shrink-0">
+                            <Badge className="bg-yellow-100 text-yellow-800 text-xs">Featured</Badge>
+                            <Badge className="bg-green-100 text-green-800 text-xs">Open</Badge>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <Badge variant="outline" className="text-xs">{project.category}</Badge>
+                          <Badge
+                            variant={
+                              project.urgency === 'high' ? 'destructive' :
+                              project.urgency === 'medium' ? 'default' : 'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {project.urgency}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+                          {project.description}
+                        </p>
+                        <div className="space-y-2 mb-4">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-semibold text-green-600">£{project.budget}</span>
+                            <span className="text-gray-500">{project.budget_type}</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>{project.location}</span>
+                            <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            size="sm"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            View Full Project Details
+                          </Button>
+                          <BidDialog
+                            projectId={project.id}
+                            projectTitle={project.title}
+                            onBidSubmitted={refetchProjects}
+                            trigger={
+                              <Button className="w-full bg-yellow-600 hover:bg-yellow-700" size="sm">
+                                Bid on Featured
+                              </Button>
+                            }
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  No featured projects available at the moment.
+                </div>
+              )}
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </section>
+
+            {/* Projects to Bid For (moved below) */}
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">Projects to Bid For</h2>
+                  <p className="text-sm text-gray-600">Projects that match your skills and expertise</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start sm:self-auto"
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Projects to Bid For')}`)}
+                >
+                  View All
+                </Button>
+              </div>
+              {projectsLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading available projects...
+                </div>
+              ) : availableProjects.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {availableProjects.slice(0, 6).map((project) => (
+                    <Card key={project.id} className="hover:shadow-md transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+                          <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">Open</Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <Badge variant="outline" className="text-xs">{project.category}</Badge>
+                          <Badge
+                            variant={
+                              project.urgency === 'high' ? 'destructive' :
+                              project.urgency === 'medium' ? 'default' : 'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {project.urgency}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+                          {project.description}
+                        </p>
+                        <div className="space-y-2 mb-4">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-semibold text-green-600">£{project.budget}</span>
+                            <span className="text-gray-500">{project.budget_type}</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>{project.location}</span>
+                            <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            size="sm"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            View Full Project Details
+                          </Button>
+                          <BidDialog
+                            projectId={project.id}
+                            projectTitle={project.title}
+                            onBidSubmitted={refetchProjects}
+                            trigger={
+                              <Button className="w-full" size="sm">
+                                Place Bid
+                              </Button>
+                            }
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  No projects available for bidding at the moment.
+                  <br />
+                  <span className="text-sm">Check back later or update your skills to see more opportunities.</span>
+                </div>
+              )}
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </section>
+
+            {/* Based on Searches Carousel */}
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {searchQuery ? `Search Results for "${searchQuery}"` : 'Based on Your Searches'}
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    {searchQuery
+                      ? 'Projects matching your search criteria'
+                      : 'Projects related to your recent search activity'
+                    }
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start sm:self-auto"
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Based on Your Searches')}`)}
+                >
+                  View All
+                </Button>
+              </div>
+              {renderSearchSection()}
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </section>
+          </div>
+
+          {/* Right Column - Messages, Reviews, Quick Actions, Earnings */}
+          <div className="space-y-8">
+            {/* Messages */}
+            <section>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Messages</h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/messages')}
+                >
+                  View All
+                </Button>
+              </div>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    {messagesLoading ? (
+                      <div className="text-center py-4 text-gray-500">
+                        Loading messages...
+                      </div>
+                    ) : recentMessages.length === 0 ? (
+                      <div className="text-center py-4 text-gray-500">
+                        No messages yet
+                      </div>
+                    ) : (
+                      recentMessages.map((message) => (
+                        <div
+                          key={message.partnerId}
+                          className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/40 transition-colors cursor-pointer"
+                          onClick={() => navigate(`/messages?with=${message.partnerId}`)}
+                        >
+                          <Avatar className="h-10 w-10">
+                            <img src={message.partnerAvatar} alt={message.partnerName} />
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-center">
+                              <p className="font-medium text-sm truncate">{message.partnerName}</p>
+                              <span className="text-xs text-gray-500">
+                                {new Date(message.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">
+                              {message.direction === 'sent' ? 'You: ' : ''}{message.content}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Recent Reviews */}
+            <section>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Recent Reviews</h2>
+              </div>
+              <Card>
+                <CardContent className="p-4">
+                  {recentReviews.length === 0 ? (
+                    <div className="text-center py-4 text-gray-500">No reviews yet</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentReviews.map((rev: any) => (
+                        <div key={rev.id} className="p-3 border rounded-lg">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Avatar className="h-8 w-8">
+                              <img src={rev.reviewer?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={rev.reviewer?.name || rev.reviewer?.username || 'Buyer'} />
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium truncate">{rev.reviewer?.name || rev.reviewer?.username || 'Buyer'}</p>
+                                <span className="text-xs text-gray-500">{new Date(rev.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex items-center text-yellow-500 text-xs">
+                                {Array.from({ length: rev.rating || 0 }).map((_, i) => (
+                                  <Star key={i} className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          {rev.comment && (
+                            <p className="text-sm text-gray-700">{rev.comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Quick Actions */}
+            <section>
+              <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
+              <div className="grid grid-cols-2 gap-3">
+                {quickActions.map((action, index) => {
+                  const IconComponent = action.icon;
+                  return (
+                    <Link key={index} to={action.href}>
+                      <Card className="cursor-pointer hover:shadow-md transition-shadow">
+                        <CardContent className="p-4 text-center">
+                          <div className={`w-12 h-12 ${action.color} rounded-lg flex items-center justify-center mx-auto mb-3`}>
+                            <IconComponent className="h-6 w-6 text-white" />
+                          </div>
+                          <h3 className="font-semibold text-sm mb-1">{action.title}</h3>
+                          <p className="text-xs text-gray-600">{action.description}</p>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Earnings Summary */}
+            <section>
+              <h2 className="text-xl font-bold mb-4">Earnings</h2>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total earned</span>
+                      <span className="font-semibold">£{realStats.earnings.total.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total spent</span>
+                      <span className="font-semibold">£{realStats.earnings.spent?.toLocaleString() ?? '0'}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Profile Completion */}
+            <section>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profile Completion</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-primary mb-2">
+                      {profileCompletion.percentage}%
+                    </div>
+                    <Progress
+                      value={profileCompletion.percentage}
+                      className="mb-4 cursor-pointer"
+                      onClick={() => navigate('/seller/update-profile')}
+                    />
+                    <p className="text-sm text-gray-600 mb-4">
+                      Complete your profile to attract more clients
+                    </p>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Profile photo</span>
+                        {profileCompletion.fields.avatar ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Professional bio</span>
+                        {profileCompletion.fields.description ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Skills &amp; expertise</span>
+                        {user.specializations && user.specializations.length > 0 ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded" onClick={() => navigate('/seller/portfolio')}>
+                        <span>Portfolio</span>
+                        {profileCompletion.fields.portfolio ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Certifications</span>
+                        {/* Placeholder: treat as incomplete until wired to real data */}
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      </div>
+                      <div className="flex justify-between">
+                        <span>KYC verification</span>
+                        {profileCompletion.fields.kyc ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full mt-4"
+                      variant="outline"
+                      onClick={() => navigate('/seller/update-profile')}
+                    >
+                      Complete Profile
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* KYC Verification */}
+            <section>
+              <h2 className="text-xl font-bold mb-4">KYC Verification</h2>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      {kycDetails.status === 'approved' ? (
+                        <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                      ) : kycDetails.status === 'pending' ? (
+                        <Shield className="h-5 w-5 text-yellow-500 mr-2" />
+                      ) : kycDetails.status === 'rejected' ? (
+                        <Shield className="h-5 w-5 text-red-500 mr-2" />
+                      ) : (
+                        <Shield className="h-5 w-5 text-gray-400 mr-2" />
+                      )}
+                      <span>ID Verification (KYC)</span>
+                    </div>
+                    {kycDetails.status === 'approved' ? (
+                      <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                    ) : kycDetails.status === 'pending' ? (
+                      <Badge className="bg-yellow-100 text-yellow-800">Pending Review</Badge>
+                    ) : kycDetails.status === 'rejected' ? (
+                      <div className="flex items-center space-x-2">
+                        <Badge className="bg-red-100 text-red-800">Rejected</Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate('/kyc-verification')}
+                        >
+                          Resubmit
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate('/kyc-verification')}
+                      >
+                        Verify Now
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {kycDetails.status === 'none' && (
+                    <p className="text-xs text-gray-500 mt-3">
+                      Complete your ID verification to increase trust and unlock full marketplace features.
+                    </p>
+                  )}
+                  
+                  {kycDetails.status === 'pending' && (
+                    <p className="text-xs text-gray-500 mt-3">
+                      Your documents are being reviewed. This usually takes 24-48 hours.
+                    </p>
+                  )}
+                  
+                  {kycDetails.status === 'rejected' && kycDetails.rejectionReason && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-sm text-red-800">
+                        <strong>Rejection reason:</strong> {kycDetails.rejectionReason}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+          </div>
+        </div>
+      </main>
+      <Footer />
+    </SellerDashboardLayout>
+  );
+}

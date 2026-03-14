@@ -111,7 +111,7 @@ export const Hero = () => {
           <div className="max-w-3xl text-center lg:text-left">
             <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-md">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              Matching care businesses with specialist providers
+              Matching care businesses with specialist professionals
             </div>
 
             <h1 className="text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-7xl">
